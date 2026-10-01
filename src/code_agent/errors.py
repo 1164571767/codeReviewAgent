@@ -23,10 +23,6 @@ class LLMBusyError(LLMError):
     """Transient LLM failure (timeout / 429 / 5xx) that survived retries."""
 
 
-class LLMResponseError(LLMError):
-    """LLM response could not be parsed into the expected shape."""
-
-
 class ToolError(AgentError):
     """Tool execution failure.
 
@@ -37,7 +33,3 @@ class ToolError(AgentError):
 
 class ReviewError(AgentError):
     """The agent could not produce a terminal review report."""
-
-
-class MaxIterationsExceeded(AgentError):
-    """The agent loop hit its iteration guard without finishing."""

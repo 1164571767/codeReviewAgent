@@ -125,3 +125,12 @@ Commit：`feat: CLI review 命令与端到端串联`
 - 三节点 Workflow 跑通，`WorkflowState` 全链路透传，`.code_agent/runs/<id>.json` 落盘。
 - 每个任务一笔（或几笔）`feat/fix/test/docs` commit，历史清晰。
 - 无 LangChain/LlamaIndex、无 Web、无向量库；工具数 = 5。
+
+---
+
+## 执行状态：全部完成（10/10）
+
+Task 1–10 均已实现、`ruff check .` 通过、`pytest -q` **91 passed**，并各自提交（11 笔，见 `DESIGN.md` §13）。
+
+- 唯一未执行的验收项：`python -m code_agent review examples/bad_code.py --focus "并发与资源释放"` 的**真实 LLM 调用**——本机无 `OPENAI_API_KEY`。已用 stub transport 等价验证（工具真实执行、报告正常渲染），并以 `review --help` + 全套测试替代。
+- 实现期偏差集中记录在 `DESIGN.md` §13。

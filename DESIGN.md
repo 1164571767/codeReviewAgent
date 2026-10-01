@@ -1,6 +1,6 @@
 # DESIGN.md — 代码审查 Agent（项目1）
 
-> 状态：待确认。确认后按 `TASKS.md` 顺序执行。
+> 状态：**已实现**（Task 1–10 全部完成）。本文档已同步为实际实现；实现期的偏差集中记录在 §13。
 > 目标：CLI 代码审查 Agent。输入代码路径 → Agent 循环调用工具（读/搜/lint）→ LLM 产出结构化审查报告 → 渲染 Markdown。
 > 约束：架构必须为项目2（多 Agent Workflow）预留**节点能力**；不过度设计（CLI、工具 ≤5、记忆用 JSON、无向量库）。
 
@@ -22,7 +22,7 @@
 
 **循环模型**：全链路 `async`（`LLMClient.chat` / `BaseAgent.run` / `Node.run` / `Workflow.run`）。理由：项目2 需要并行节点与并发工具调用。代价：`pytest-asyncio`。
 
-**结构化输出**：使用 **function/tool calling**（终态工具 `submit_review`），**不依赖** OpenAI 私有 `response_format=json_schema`。理由：要兼容 DeepSeek 等端点。机型输出解析失败时有「修复提示重试」与「部分报告兜底」两级降级（见 §7）。
+**结构化输出**：使用 **function/tool calling**（终态工具 `submit_review`），**不依赖** OpenAI 私有 `response_format=json_schema`。理由：要兼容 DeepSeek 等端点。模型输出解析失败时有「修复提示重试」与「部分报告兜底」两级降级（见 §8、§9）。
 
 **依赖清单**：运行时 `openai`, `pydantic`, `typer`, `rich`, `tenacity`；开发时 `pytest`, `pytest-asyncio`, `ruff`。
 
@@ -51,11 +51,11 @@ codeReviewAgent/
 │       ├── logging_setup.py     # key=value Formatter + 级别配置
 │       ├── llm.py               # LLMClient（AsyncOpenAI 封装 + 超时 + tenacity 重试 + 错误分类）
 │       ├── message.py           # AgentMessage / ToolCall
-│       ├── state.py             # WorkflowState / ReviewTask / UsageStats / TraceEvent
+│       ├── state.py             # WorkflowState / ReviewTask / TraceEvent
 │       ├── memory.py            # JSONMemory：落盘 + 上下文裁剪
 │       ├── node.py              # Node 协议
 │       ├── workflow.py          # Workflow：线性执行器（唯一知道拓扑的地方）
-│       ├── base_agent.py        # BaseAgent(Node)：Agent 循环
+│       ├── base_agent.py        # BaseAgent(ABC)：Agent 循环，结构化满足 Node 协议
 │       ├── prompts.py           # Reviewer 系统提示词
 │       ├── report.py            # ReviewReport / Finding / render_markdown
 │       ├── tools/
@@ -68,7 +68,8 @@ codeReviewAgent/
 │           ├── reviewer.py      # ReviewerAgent(BaseAgent)
 │           └── reporter.py      # ReporterNode（校验 + 渲染）
 └── tests/
-    ├── conftest.py              # FakeLLM、tmp 代码夹具、deterministic id/clock
+    ├── fakes.py                 # FakeLLM：脚本化 LLM 替身，多个测试复用
+    ├── test_smoke.py
     ├── test_config.py
     ├── test_logging.py
     ├── test_message_state.py
@@ -104,11 +105,13 @@ class Workflow:
     """唯一知道拓扑的地方。项目1 用线性 for；项目2 替换调度即可，节点无感。"""
     def __init__(self, nodes: Sequence[Node]) -> None: ...
     async def run(self, state: WorkflowState) -> WorkflowState:
-        for node in self.nodes:
+        for node in self._nodes:
             state.node = node.name
-            log(event="node_start", node=node.name)
+            state.trace.append(TraceEvent(node=node.name, event="node_start"))
             state = await node.run(state)
-            log(event="node_end", node=node.name)
+            state.trace.append(
+                TraceEvent(node=node.name, event="node_end", ok=state.status != "failed")
+            )
             if state.status == "failed":
                 break
         return state
@@ -126,21 +129,25 @@ class Workflow:
 
 ```python
 # base_agent.py
-class BaseAgent(Node, ABC):
+class BaseAgent(ABC):                      # 结构化满足 Node 协议：不显式继承 Node
     name: ClassVar[str]
     system_prompt: str                 # 子类提供
     finish_tool: ClassVar[str | None] = None   # 终态工具名，如 "submit_review"
 
-    def __init__(self, llm: LLMClient, tools: ToolRegistry, config: AgentConfig) -> None: ...
+    def __init__(self, llm: LLMClient, tools: ToolRegistry, config: AgentConfig,
+                 memory: JSONMemory | None = None) -> None: ...
 
     async def run(self, state: WorkflowState) -> WorkflowState:
-        """Node 协议实现：播种 system 消息 → 进入 Agent 循环 → 收尾写 state。"""
+        """播种 system 消息 → Agent 循环（nudge/终态/修复重试）→ 收尾写 state。"""
 
     async def _step(self, state: WorkflowState) -> AgentMessage:
-        """单轮 LLM：用 memory.build_context(state) 组上下文 + tools.schemas() 调用 LLM，返回 assistant 消息。"""
+        """单轮 LLM：用 memory.build_context(state) 组上下文 + tools.schemas() 调用 LLM，返回 assistant 消息，并累计 usage。"""
 
     async def _execute_tools(self, state: WorkflowState, calls: list[ToolCall]) -> list[AgentMessage]:
-        """并发执行工具调用，捕获异常转成 role=tool 的 JSON 结果消息，记录 trace 与 usage。"""
+        """并发执行工具调用（asyncio.gather + to_thread），结果转成 role=tool 的 JSON 消息，记录 trace 与 usage。"""
+
+    async def _degrade(self, state: WorkflowState, reason: str) -> WorkflowState:
+        """守卫触发时的收尾钩子；子类可覆写以抢救部分结果。"""
 
     @abstractmethod
     async def _finalize(self, state: WorkflowState, args: dict[str, Any]) -> WorkflowState:
@@ -148,6 +155,8 @@ class BaseAgent(Node, ABC):
 ```
 
 **职责边界**：`BaseAgent` 只管「循环 + 工具调度 + 消息累积 + 守卫」；**不**知道具体业务。项目2 的多 Agent 都是它的子类。
+
+**为什么是结构化而非继承**：`Node` 是 `Protocol`，`BaseAgent` 只要具备 `name` 与 `async run(state)` 即满足。不显式继承可避免「Task 7 的 `base_agent.py` 反向依赖 Task 8 的 `node.py`」，也让非 Agent 的普通节点（如 `CollectorNode`）无需任何基类。
 
 ---
 
@@ -163,11 +172,14 @@ class ReviewTask(BaseModel):
     focus: str | None = None          # 用户附加关注点，如「只看并发安全」
     out: Path | None = None           # 报告输出路径
 
-class UsageStats(BaseModel):
+class UsageStats(BaseModel):   # 实际定义在 report.py（避免 state ↔ report 循环导入）
     llm_calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
     tool_calls: int = 0
+
+    @property
+    def total_tokens(self) -> int:  # prompt + completion
 
 class TraceEvent(BaseModel):
     ts: datetime
@@ -228,7 +240,7 @@ class AgentMessage(BaseModel):
 ## 7. ReviewReport schema
 
 ```python
-class Severity(str, Enum):
+class Severity(StrEnum):
     info = "info"; low = "low"; medium = "medium"; high = "high"; critical = "critical"
 
 class Finding(BaseModel):
@@ -252,7 +264,7 @@ class ReviewReport(BaseModel):
     usage: UsageStats
 ```
 
-`submit_review` 工具的入参 JSON schema 由 `ReviewReport.model_json_schema()` 派生（去掉 `generated_at/model/usage` 等运行期字段，由 `_finalize` 回填）。终态校验失败 → 降级链（见 §8）。
+`submit_review` 工具的入参 JSON schema 由 `ReviewReport.submission_schema()` 派生（从 `properties` 与 `required` 中剔除 `generated_at/model/usage` 等运行期字段，由 `_finalize` 回填）。终态校验失败 → 降级链（见 §9）。
 
 ---
 
@@ -260,37 +272,39 @@ class ReviewReport(BaseModel):
 
 ```
 async def BaseAgent.run(state):
-    if not has_system(state.messages):
-        state.messages.append(system(self.system_prompt))
-    nudged = False
-    for it in range(config.max_iterations):            # 默认 12
-        if state.usage.total_tokens() > config.token_budget:
-            state.warnings.append("token budget exceeded"); break
+    seed_system(state)                                  # 幂等：已有 system 则跳过
+    status = "running"; nudged = False; repairs = 0
+    for it in range(config.max_iterations):             # 默认 12
+        if state.usage.total_tokens >= config.token_budget:
+            return await self._degrade(state, reason="token_budget")
 
-        ctx = memory.build_context(state)              # 按预算裁剪历史
-        resp = await llm.chat(ctx, tools=tools.schemas(), temperature=config.temperature)
-        #   llm.chat 内部：超时 + tenacity 重试 + 错误分类（见 §9）
-        msg = to_agent_message(resp)
+        msg = await self._step(state)                   # memory.build_context → llm.chat → 累计 usage
         state.messages.append(msg)
-        state.usage.llm_calls += 1; state.usage += resp.usage
-        trace(event="llm_response", it=it, tool_calls=len(msg.tool_calls))
+        trace(event="llm_response", tool_calls=len(msg.tool_calls))
 
-        if not msg.tool_calls:                         # 模型没要工具
-            if nudged: break                           # 已提醒过一次 → 结束
-            state.messages.append(user("请调用 submit_review 提交结构化结果。"))
-            nudged = True; continue
+        if msg.tool_calls:
+            terminal = call_for(self.finish_tool, msg.tool_calls)
+            if terminal:                                # 终态工具
+                try:
+                    return await self._finalize(state, terminal.arguments)
+                except (ValidationError, ReviewError) as exc:
+                    repairs += 1
+                    trace(event="repair", ok=False, error=str(exc))
+                    if repairs > config.max_repairs:    # 默认 2
+                        return await self._degrade(state, reason="invalid_report")
+                    state.messages.append(user(f"提交不符合 schema（{exc}），请修正后重试"))
+                    continue
+            state.messages.extend(await self._execute_tools(state, msg.tool_calls))  # 并发
+            continue
 
-        if self.finish_tool in {c.name for c in msg.tool_calls}:
-            args = call_for(self.finish_tool).arguments
-            return await self._finalize(state, args)   # 终态
-
-        results = await self._execute_tools(state, msg.tool_calls)  # 并发
-        state.messages.extend(results)
-    # 循环耗尽 / 预算超限
+        if nudged:                                      # 第二次不给工具 → 结束
+            break
+        state.messages.append(user("请调用 submit_review 提交结构化结果。"))
+        nudged = True
     return await self._degrade(state, reason="max_iterations")
 ```
 
-**上下文裁剪（`memory.build_context`）**：始终保留 `system`；从尾部保留最近消息直到接近预算；中间被裁掉的 `tool` 结果替换为一行摘要（`[omitted N chars ok=true]`），保证 tool_call ↔ tool_result 配对不被拆散。
+**上下文裁剪（`memory.build_context`）**：始终保留 `system`；从尾部整段保留最近消息直到触达预算，超出部分**整段丢弃**（不插入摘要占位）；裁完后若队首残留无主的 `tool` 消息则一并丢弃，保证 tool_call ↔ tool_result 配对不被拆散。token 用字符启发式（`chars // 4`）估算，不引入 tokenizer 依赖。
 
 **工具集（4 调查工具 + 1 终态工具 = 5，未超限）**：
 
@@ -314,12 +328,12 @@ async def BaseAgent.run(state):
 AgentError(Exception)
 ├── ConfigError            配置/鉴权/参数问题（不重试）
 ├── LLMError
-│   ├── LLMBusyError       限流/超时/5xx 重试后仍失败
-│   └── LLMResponseError   响应结构不可解析
+│   └── LLMBusyError       限流/超时/5xx 重试后仍失败
 ├── ToolError              工具内部错误（默认被工具吞成 JSON）
-├── ReviewError            终态报告生成失败
-└── MaxIterationsExceeded  循环守卫
+└── ReviewError            终态报告生成失败
 ```
+
+（早期设计里的 `LLMResponseError`、`MaxIterationsExceeded` 从未被抛出/捕获，已删除；循环守卫走 `_degrade` 而非抛异常。）
 
 **策略表**：
 
@@ -329,8 +343,8 @@ AgentError(Exception)
 | LLM 401/403/404 | 立即 `ConfigError`，退出码 2 | ❌ |
 | 工具参数 JSON 坏 | 兜成 `{}`，工具返回 `{ok:false}` 让模型改正 | 循环内 |
 | 工具运行时报错（文件缺失、ruff 未装） | 转 `{ok:false, error}` 入消息；ruff 缺失记 `warnings`，Agent 继续 | 循环内 |
-| 终态 args 不符合 ReviewReport | 追加修复 user 消息重试，最多 2 次；仍失败 → `_degrade` 用已累积 `findings` 组**部分报告** | 2 次 |
-| `max_iterations` / token 预算耗尽 | `_degrade`：有 findings 则产部分报告 + warning；无则 `failed` | ❌ |
+| 终态 args 不符合 ReviewReport | `_finalize` 先抢救单条合法 `findings` 存入 `state.findings`；追加修复 user 消息重试，最多 2 次；仍失败 → `_degrade` 用它组**部分报告** | 2 次 |
+| `max_iterations` / token 预算耗尽 | `_degrade`：有 `state.findings` 则产部分报告（score=0）并置 `done`；无则 `failed` | ❌ |
 | 报告写盘失败 | 传播，退出码 1 | ❌ |
 
 **退出码**：`0` 成功；`1` 运行期错误（LLM/工具/写盘致命）；`2` 配置/用法错误。所有致命错误：stderr 打 `ERROR`，已落盘 run journal 路径一并打印。
@@ -348,20 +362,55 @@ ts=2026-10-01T22:10:00.123Z level=INFO run=8f3a node=ReviewerAgent iter=2 event=
 ts=2026-10-01T22:10:00.456Z level=WARNING run=8f3a node=ReviewerAgent event=tool_result tool=run_lint ok=false err="ruff not found"
 ```
 
-事件名：`run_start, node_start, node_end, llm_request, llm_response, retry, tool_call, tool_result, memory_save, report_ready, run_end`。
+事件名（`TraceEvent.event`，实际发出）：`node_start, node_end`（Workflow）、`llm_response, tool_call, tool_result, repair`（BaseAgent）。`usage`、`warnings`、`trace` 随 `WorkflowState` 落盘到 run journal。
 
 ---
 
 ## 11. 测试策略（全程无网络）
 
-- `FakeLLM`：实现与 `LLMClient` 相同协议，脚本化返回序列（如：`read_file` 调用 → `submit_review`），驱动确定性循环测试。
-- 工具：`tmp_path` 建临时代码文件验证，含边界（超大文件截断、二进制跳过、ruff 缺失）。
-- CLI：`typer.testing.CliRunner` + 注入 `FakeLLM`。
-- 确定性：注入 `id_factory` 和固定 `clock`，避免 `run_id`/时间戳抖动。
+- `FakeLLM`（`tests/fakes.py`）：实现与 `LLMClient` 相同协议，脚本化返回序列（如：`read_file` 调用 → `submit_review`），驱动确定性循环测试；被 `test_agent_loop.py` / `test_reviewer.py` / `test_cli.py` 复用。
+- 工具：`tmp_path` 建临时代码文件验证，含边界（超大文件截断、二进制跳过、ruff 缺失/超时）。
+- CLI：`typer.testing.CliRunner`，经 `monkeypatch` 把 `cli.OpenAILLMClient` 换为 `FakeLLM`，并把 `cli.JSONMemory` 指到 `tmp_path`。
+- 确定性：id 用 `uuid4`，测试从不断言具体值，因此无需注入 `id_factory`/`clock`。
 
 ## 12. 已知风险
 
 1. **Python 3.14 wheel**：已选定 3.14；仅当 pydantic-core 无 cp314 wheel 致安装失败时暂停并请你决策（不自行装解释器）。
-2. **端点不支持并行 tool calls**：`_execute_tools` 按序执行即可，不影响正确性。
+2. **端点不支持并行 tool calls**：`_execute_tools` 用 `asyncio.gather` + `to_thread` 并发；端点只回单个调用时自然退化为串行，不影响正确性。
 3. **兼容端点 tool calling 质量差**：靠修复重试 + 部分报告兜底，不硬失败。
-4. **上下文裁剪丢证据**：裁剪优先保 `tool_result`，仅当超预算才摘要化。
+4. **上下文裁剪丢证据**：裁剪从尾部整段保留，最旧的调查结果会整段丢失；默认预算 60k tokens，单文件审查远未触达。
+
+---
+
+## 13. 实现记录（Task 1–10 完成）
+
+**提交历史**（11 笔，`git log --oneline`）：
+
+| commit | 内容 |
+|---|---|
+| `6918cd1` | docs: 设计文档、任务清单与项目说明 |
+| `a45624f` | feat: 项目骨架与 CLI 入口 |
+| `abf1a8e` | feat: 配置、错误类型与结构化日志 |
+| `542b019` | feat: 消息、状态与报告数据模型 |
+| `c55fb92` | feat: LLM 客户端（超时/重试/错误分类） |
+| `92d48f3` | feat: 工具注册表与 4 个内置工具 |
+| `cb1c644` | feat: JSON 记忆与上下文裁剪 |
+| `03ba516` | feat: BaseAgent 循环与守卫 |
+| `fc3f446` | feat: Node/Workflow 节点抽象（为项目2 预留） |
+| `10e640e` | feat: Collector/Reviewer/Reporter 三节点与 Markdown 渲染 |
+| `f677870` | feat: CLI review 命令与端到端串联 |
+
+**验证状态**：`ruff check .` 通过；`pytest -q` 91 passed。真实 LLM 端到端**未执行**（本机无 `OPENAI_API_KEY`）；改用 stub transport 跑通全链路（`run_lint` / `read_file` 真实执行，产出 Markdown 报告）。
+
+**实现期偏差**（本文档正文已按实际内容修订，此处集中列出）：
+
+1. `UsageStats` 定义在 `report.py`（非 `state.py`），避免 `state ↔ report` 循环导入。
+2. `Severity` 用 `enum.StrEnum`（非 `(str, Enum)`），满足 ruff UP042。
+3. `BaseAgent` 不显式继承 `Node`，靠结构化协议匹配（避免 Task 7 ↔ Task 8 依赖倒置）。
+4. 上下文裁剪**整段丢弃**最旧消息，不插入摘要占位；配对完整性仍严格保证。
+5. `ReviewerAgent._finalize` 在整体校验失败前，先抢救单条合法 `findings` 存入 `state.findings`，供 `_degrade` 组部分报告。
+6. `ReviewReport.RUNTIME_FIELDS` + `submission_schema()` 从 tool schema 中剔除运行期字段。
+7. `src/code_agent/cli.py` 配 `B008` per-file-ignore（typer 的 `Option(...)` in defaults 是官方写法）。
+8. 删除了从未使用的 `LLMResponseError`、`MaxIterationsExceeded`（见 §9）。
+
+**项目2 接口就绪度**：`Node` / `Workflow` / `WorkflowState` 三件套可直接复用；把 `Workflow.__init__(nodes)` 换成图调度器即可承载多 Agent，节点与 Agent 代码无需改动。
