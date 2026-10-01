@@ -39,6 +39,10 @@ extend-exclude = ["examples"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "W"]
 
+[tool.ruff.lint.per-file-ignores]
+# typer's Typer/Option/Argument-in-defaults is the documented usage pattern.
+"src/code_agent/cli.py" = ["B008"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
