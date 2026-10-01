@@ -30,6 +30,7 @@ class AgentConfig(BaseModel):
     timeout: float = Field(default=60.0, gt=0)
     max_retries: int = Field(default=4, ge=0)
     max_iterations: int = Field(default=12, ge=1)
+    max_repairs: int = Field(default=2, ge=0)
     token_budget: int = Field(default=60_000, gt=0)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
 
