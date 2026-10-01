@@ -23,3 +23,5 @@ python -m code_agent review src/ --glob "**/*.py" --max-files 10 --out report.md
 ```
 
 退出码：`0` 成功，`1` 运行期错误，`2` 配置/用法错误。
+
+真实端点下的完整验收步骤（key 注入、成功判据、失败归因）见 [ACCEPTANCE.md](ACCEPTANCE.md)。
