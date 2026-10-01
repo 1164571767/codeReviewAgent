@@ -9,30 +9,11 @@ from typing import Any
 from code_agent.base_agent import BaseAgent
 from code_agent.config import AgentConfig
 from code_agent.llm import LLMResult
-from code_agent.message import AgentMessage, ToolCall
+from code_agent.message import ToolCall
 from code_agent.report import ReviewReport
 from code_agent.state import ReviewTask, WorkflowState
 from code_agent.tools.registry import Tool, ToolRegistry
-
-
-class FakeLLM:
-    """Returns pre-scripted results in order; records each request."""
-
-    def __init__(self, script: list[LLMResult]) -> None:
-        self._script = list(script)
-        self.requests: list[list[AgentMessage]] = []
-
-    async def chat(
-        self,
-        messages: Any,
-        *,
-        tools: Any = None,
-        temperature: float | None = None,
-    ) -> LLMResult:
-        self.requests.append(list(messages))
-        if not self._script:
-            raise AssertionError("FakeLLM ran out of scripted responses")
-        return self._script.pop(0)
+from fakes import FakeLLM
 
 
 class DummyAgent(BaseAgent):
