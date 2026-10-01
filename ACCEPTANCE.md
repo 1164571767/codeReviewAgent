@@ -57,12 +57,14 @@ setx OPENAI_API_KEY "sk-你的真实key"
 python -c "import os;print('SET' if os.environ.get('OPENAI_API_KEY') else 'MISSING')"
 ```
 
-### 方式 B —— `.env` 文件（**当前未启用，需先加 `python-dotenv`**）
+### 方式 B —— `.env` 文件（**已决定不启用**）
 
-⚠️ 现在把 key 写进 `.env` **无效**：`config.py` 没有加载 `.env`，只有 `os.environ`。
-`.gitignore` 已忽略 `.env`，所以文件本身不会被提交——但读不到。
+⚠️ 把 key 写进 `.env` **当前无效**：`config.py` 只读 `os.environ`，没有加载 `.env`。
+`.gitignore` 已忽略 `.env`，文件本身不会被提交——但项目也读不到它。
 
-若要启用，需要我做两件事：
+> 已决定不引入 `python-dotenv`（保持零额外依赖）。本节保留仅供日后参考。
+
+若哪天要启用，只需两步：
 1. `pyproject.toml` 加依赖 `python-dotenv`，`config.py` 里在 `from_env()` 前调用 `load_dotenv()`；
 2. 提交一份 `.env.example` 占位模板（不含真实值）。
 
