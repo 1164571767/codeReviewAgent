@@ -12,3 +12,4 @@ venv/
 htmlcov/
 .code_agent/
 .env
+.claude/
