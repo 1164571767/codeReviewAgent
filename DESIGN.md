@@ -65,8 +65,9 @@ codeReviewAgent/
 │       └── agents/
 │           ├── __init__.py
 │           ├── collector.py     # CollectorNode（无 LLM）
-│           ├── reviewer.py      # ReviewerAgent(BaseAgent)
-│           └── reporter.py      # ReporterNode（校验 + 渲染）
+│           ├── reviewer.py      # ReviewerAgent(BaseAgent)，终态工具 submit_review
+│           ├── reporter.py      # ReporterNode（校验 + 渲染）
+│           └── chat.py          # ChatAgent(BaseAgent)，无终态工具（对话模式）
 └── tests/
     ├── fakes.py                 # FakeLLM：脚本化 LLM 替身，多个测试复用
     ├── test_smoke.py
@@ -156,6 +157,13 @@ class BaseAgent(ABC):                      # 结构化满足 Node 协议：不�
 
 **职责边界**：`BaseAgent` 只管「循环 + 工具调度 + 消息累积 + 守卫」；**不**知道具体业务。项目2 的多 Agent 都是它的子类。
 
+**两种模式**（由 `finish_tool` 选择）：
+- **终态模式**（`finish_tool="submit_review"`）：循环跑到该工具被调用为止，`_finalize` 校验其参数。用于 `ReviewerAgent`。
+- **对话模式**（`finish_tool=None`）：模型一次无工具调用的纯文本回答即本轮结束，内容写入 `state.artifacts["reply"]`；不发 nudge。用于 `ChatAgent`。
+  对话模式下 `ChatAgent.run` 每轮把 `state.usage` 重置，避免跨轮的累计 token 触发预算守卫。
+
+`_finalize` 不再是 `@abstractmethod`：终态模式子类必须覆写，对话模式不会走到它（默认 `NotImplementedError`）。
+
 **为什么是结构化而非继承**：`Node` 是 `Protocol`，`BaseAgent` 只要具备 `name` 与 `async run(state)` 即满足。不显式继承可避免「Task 7 的 `base_agent.py` 反向依赖 Task 8 的 `node.py`」，也让非 Agent 的普通节点（如 `CollectorNode`）无需任何基类。
 
 ---
@@ -198,7 +206,8 @@ class WorkflowState(BaseModel):
     messages: list[AgentMessage] = []          # Agent 会话（短期上下文）
     findings: list[Finding] = []               # 累积发现
     report: ReviewReport | None = None         # 终态报告
-    artifacts: dict[str, Any] = {}             # 节点间载荷（项目2 扩展通道）
+    artifacts: dict[str, Any] = {}             # 节点间载荷（项目2 扩展通道）；
+                                               # 对话模式存 ["reply"]，review 模式存 ["markdown"]
     usage: UsageStats = UsageStats()
     trace: list[TraceEvent] = []
     warnings: list[str] = []                   # 降级/跳过类警告（非致命）
@@ -414,3 +423,8 @@ ts=2026-10-01T22:10:00.456Z level=WARNING run=8f3a node=ReviewerAgent event=tool
 8. 删除了从未使用的 `LLMResponseError`、`MaxIterationsExceeded`（见 §9）。
 
 **项目2 接口就绪度**：`Node` / `Workflow` / `WorkflowState` 三件套可直接复用；把 `Workflow.__init__(nodes)` 换成图调度器即可承载多 Agent，节点与 Agent 代码无需改动。
+
+**后续新增（不在原 10 个任务内）**：
+
+- `chat` 命令 + `ChatAgent`：交互式多轮对话，复用同一套 `BaseAgent` / 工具 / `JSONMemory`。为此把 `BaseAgent` 从「只支持终态工具」扩展为「终态模式 / 对话模式」两态（见 §4），并移除了 `_finalize` 的 `@abstractmethod`。
+- 验证：`ruff check .` 通过；`pytest -q` **99 passed**（新增 `tests/test_chat.py` 8 例）。

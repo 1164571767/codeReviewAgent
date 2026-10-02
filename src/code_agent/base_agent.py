@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 from uuid import uuid4
 
@@ -30,7 +29,15 @@ def new_id() -> str:
     return uuid4().hex[:12]
 
 
-class BaseAgent(ABC):
+class BaseAgent:
+    """Two modes, selected by ``finish_tool``:
+
+    * **terminal mode** (``finish_tool`` set, e.g. ``submit_review``): the loop
+      runs until that tool is called; ``_finalize`` validates its arguments.
+    * **conversational mode** (``finish_tool is None``): a plain assistant
+      answer ends the turn and is stored in ``state.artifacts["reply"]``.
+    """
+
     name: ClassVar[str] = "BaseAgent"
     system_prompt: str = ""
     finish_tool: ClassVar[str | None] = None
@@ -88,6 +95,12 @@ class BaseAgent(ABC):
                 state.messages.extend(await self._execute_tools(state, message.tool_calls))
                 continue
 
+            # The model answered without calling a tool.
+            if self.finish_tool is None:
+                # Conversational mode: prose is the answer, the turn is over.
+                state.artifacts["reply"] = message.content or ""
+                state.status = "done"
+                return state
             if nudged:
                 break
             nudged = True
@@ -186,6 +199,10 @@ class BaseAgent(ABC):
             state.status = "done"
         return state
 
-    @abstractmethod
     async def _finalize(self, state: WorkflowState, arguments: dict[str, Any]) -> WorkflowState:
-        """Validate terminal tool arguments into ``state`` and finish."""
+        """Validate terminal tool arguments into ``state`` and finish.
+
+        Only reached in terminal mode; any subclass that sets ``finish_tool``
+        must override this.
+        """
+        raise NotImplementedError(f"{self.name} sets finish_tool but not _finalize")

@@ -134,3 +134,4 @@ Task 1–10 均已实现、`ruff check .` 通过、`pytest -q` **91 passed**，�
 
 - 唯一未执行的验收项：`python -m code_agent review examples/bad_code.py --focus "并发与资源释放"` 的**真实 LLM 调用**——本机无 `OPENAI_API_KEY`。已用 stub transport 等价验证（工具真实执行、报告正常渲染），并以 `review --help` + 全套测试替代。
 - 实现期偏差集中记录在 `DESIGN.md` §13。
+- **后续补充**：新增 `chat` 交互式子命令 + `ChatAgent`（不在原 10 任务内），见 `DESIGN.md` §4 / §13。

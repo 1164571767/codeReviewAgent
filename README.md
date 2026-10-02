@@ -20,6 +20,9 @@ export CODE_AGENT_MODEL=deepseek-chat
 
 python -m code_agent review examples/bad_code.py --focus "并发与资源释放"
 python -m code_agent review src/ --glob "**/*.py" --max-files 10 --out report.md
+
+# 交互式多轮对话（跨轮记忆），exit / quit / Ctrl-D 退出
+python -m code_agent chat --path src/
 ```
 
 退出码：`0` 成功，`1` 运行期错误，`2` 配置/用法错误。

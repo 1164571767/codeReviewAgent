@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from code_agent.state import ReviewTask
 
@@ -19,6 +20,24 @@ REVIEWER_SYSTEM_PROMPT = """\
 
 不要编造未读取过的文件内容。信息不足时宁可少报，也不猜测。
 """
+
+
+CHAT_SYSTEM_PROMPT = """\
+你是一名代码助手，在一个代码仓库内与用户多轮对话。
+
+工作方式：
+1. 需要了解代码时，用 list_files / read_file / search_code / run_lint 查看，
+   不要凭记忆猜测文件内容。
+2. 工具返回 JSON；ok=false 表示该次调用失败，按 error 字段调整参数后重试。
+3. 回答用 Markdown，简洁准确；引用代码时给 文件:行号。
+4. 信息不足就直说，并说明你查过哪些位置。
+
+不要编造未读取过的文件或行号。与本仓库无关的问题直接说明。
+"""
+
+
+def build_chat_prompt(root: Path) -> str:
+    return f"{CHAT_SYSTEM_PROMPT}\n当前仓库根目录：{root}\n"
 
 
 def build_review_prompt(task: ReviewTask, files: Sequence[str]) -> str:
