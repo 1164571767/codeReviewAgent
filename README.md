@@ -2,7 +2,7 @@
 
 代码审查 Agent（CLI）：给定代码路径，Agent 循环调用工具（读/搜/lint），LLM 产出结构化审查报告，CLI 渲染 Markdown。
 
-设计见 [DESIGN.md](DESIGN.md)，执行计划见 [TASKS.md](TASKS.md)。
+设计见 [DESIGN.md](DESIGN.md)，执行计划见 [TASKS.md](TASKS.md)，本地 Web 界面见 [WEB.md](WEB.md)，真实环境验收见 [ACCEPTANCE.md](ACCEPTANCE.md)。
 
 ## 安装
 
@@ -23,6 +23,9 @@ python -m code_agent review src/ --glob "**/*.py" --max-files 10 --out report.md
 
 # 交互式多轮对话（跨轮记忆），exit / quit / Ctrl-D 退出
 python -m code_agent chat --path src/
+
+# 本地 Web 界面（先 pip install -e ".[web]"），实时看 Agent 调工具
+python -m code_agent serve
 ```
 
 退出码：`0` 成功，`1` 运行期错误，`2` 配置/用法错误。

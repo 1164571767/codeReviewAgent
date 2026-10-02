@@ -428,3 +428,6 @@ ts=2026-10-01T22:10:00.456Z level=WARNING run=8f3a node=ReviewerAgent event=tool
 
 - `chat` 命令 + `ChatAgent`：交互式多轮对话，复用同一套 `BaseAgent` / 工具 / `JSONMemory`。为此把 `BaseAgent` 从「只支持终态工具」扩展为「终态模式 / 对话模式」两态（见 §4），并移除了 `_finalize` 的 `@abstractmethod`。
 - 验证：`ruff check .` 通过；`pytest -q` **99 passed**（新增 `tests/test_chat.py` 8 例）。
+
+- **Web 端**（`code-agent serve` + `src/code_agent/web/`）：FastAPI + SSE，把 Agent 的实时事件流与报告渲染成"审查卷宗"界面。依赖做成可选 extra `.[web]`，核心 CLI 不受影响。为此给 `WorkflowState` 增加了**私有事件订阅钩子** `set_event_sink()` / `emit()`（不入序列化，CLI 无感），这同时是项目2 事件总线/可观测性的接入点。详见 `WEB.md`。
+- 验证：`pytest -q` **109 passed**（新增 `tests/test_web.py` 7 例）；`serve` 实际启动后经 curl 验证 `/`、`/api/config`、`/static/*`、`/api/review`(SSE) 均正常。
