@@ -6,11 +6,12 @@ fully JSON-serialisable so project 2 can checkpoint and resume a workflow.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from code_agent.message import AgentMessage
 from code_agent.report import Finding, ReviewReport, UsageStats
@@ -49,3 +50,16 @@ class WorkflowState(BaseModel):
     trace: list[TraceEvent] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
+
+    # Live subscription for the trace; never serialised (see set_event_sink).
+    _event_sink: Callable[[TraceEvent], None] | None = PrivateAttr(default=None)
+
+    def set_event_sink(self, sink: Callable[[TraceEvent], None] | None) -> None:
+        """Subscribe to trace events as they happen (used by the web stream)."""
+        self._event_sink = sink
+
+    def emit(self, event: TraceEvent) -> None:
+        """Append an event to the trace and notify the subscriber, if any."""
+        self.trace.append(event)
+        if self._event_sink is not None:
+            self._event_sink(event)

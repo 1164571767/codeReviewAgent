@@ -41,6 +41,32 @@ def test_usage_stats_defaults_independent() -> None:
     assert b.usage.llm_calls == 0
 
 
+def test_emit_appends_and_notifies_sink() -> None:
+    state = WorkflowState(run_id="r1", task=ReviewTask(target=Path("x.py")))
+    seen: list[TraceEvent] = []
+    state.set_event_sink(seen.append)
+
+    event = TraceEvent(node="ReviewerAgent", event="tool_call")
+    state.emit(event)
+
+    assert state.trace == [event]
+    assert seen == [event]
+
+
+def test_emit_without_sink_is_safe() -> None:
+    state = WorkflowState(run_id="r1", task=ReviewTask(target=Path("x.py")))
+    state.emit(TraceEvent(node="n", event="e"))
+    assert len(state.trace) == 1
+
+
+def test_event_sink_is_not_serialised() -> None:
+    state = WorkflowState(run_id="r1", task=ReviewTask(target=Path("x.py")))
+    state.set_event_sink(lambda _event: None)
+    dumped = state.model_dump_json()
+    assert "sink" not in dumped
+    assert WorkflowState.model_validate_json(dumped).trace == []
+
+
 def test_state_json_round_trip() -> None:
     state = WorkflowState(run_id="r1", task=ReviewTask(target=Path("x.py"), glob="*.py"))
     state.files.append("x.py")

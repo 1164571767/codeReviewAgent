@@ -27,13 +27,13 @@ class Workflow:
     async def run(self, state: WorkflowState) -> WorkflowState:
         for node in self._nodes:
             state.node = node.name
-            state.trace.append(TraceEvent(node=node.name, event="node_start"))
+            state.emit(TraceEvent(node=node.name, event="node_start"))
             log.info("node start", extra={"kv": {"node": node.name}})
 
             state = await node.run(state)
 
             failed = state.status == "failed"
-            state.trace.append(TraceEvent(node=node.name, event="node_end", ok=not failed))
+            state.emit(TraceEvent(node=node.name, event="node_end", ok=not failed))
             log.info(
                 "node end",
                 extra={"kv": {"node": node.name, "status": state.status, "ok": not failed}},

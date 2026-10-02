@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, ClassVar
 from uuid import uuid4
 
@@ -79,7 +80,7 @@ class BaseAgent:
                         return await self._finalize(state, terminal.arguments)
                     except (ValidationError, ReviewError) as exc:
                         repairs += 1
-                        state.trace.append(
+                        state.emit(
                             TraceEvent(
                                 node=self.name,
                                 event="repair",
@@ -115,7 +116,7 @@ class BaseAgent:
         state.usage.llm_calls += 1
         state.usage.prompt_tokens += result.prompt_tokens
         state.usage.completion_tokens += result.completion_tokens
-        state.trace.append(
+        state.emit(
             TraceEvent(
                 node=self.name,
                 event="llm_response",
@@ -136,20 +137,24 @@ class BaseAgent:
         calls: list[ToolCall],
     ) -> list[AgentMessage]:
         for call in calls:
-            state.trace.append(
+            state.emit(
                 TraceEvent(node=self.name, event="tool_call", data={"tool": call.name})
             )
-        outcomes = await asyncio.gather(
-            *(asyncio.to_thread(self._tools.call, call.name, call.arguments) for call in calls)
-        )
+        outcomes = await asyncio.gather(*(self._timed_call(call) for call in calls))
         messages: list[AgentMessage] = []
-        for call, outcome in zip(calls, outcomes, strict=True):
+        for call, (outcome, dur_ms) in zip(calls, outcomes, strict=True):
             ok = bool(outcome.get("ok"))
             state.usage.tool_calls += 1
-            state.trace.append(
-                TraceEvent(node=self.name, event="tool_result", ok=ok, data={"tool": call.name})
+            state.emit(
+                TraceEvent(
+                    node=self.name,
+                    event="tool_result",
+                    ok=ok,
+                    dur_ms=dur_ms,
+                    data={"tool": call.name},
+                )
             )
-            log.info("tool result", extra={"kv": {"tool": call.name, "ok": ok}})
+            log.info("tool result", extra={"kv": {"tool": call.name, "ok": ok, "dur_ms": dur_ms}})
             messages.append(
                 AgentMessage(
                     id=new_id(),
@@ -160,6 +165,11 @@ class BaseAgent:
                 )
             )
         return messages
+
+    async def _timed_call(self, call: ToolCall) -> tuple[dict[str, Any], int]:
+        start = time.perf_counter()
+        outcome = await asyncio.to_thread(self._tools.call, call.name, call.arguments)
+        return outcome, int((time.perf_counter() - start) * 1000)
 
     def _terminal_call(self, message: AgentMessage) -> ToolCall | None:
         if not self.finish_tool:
