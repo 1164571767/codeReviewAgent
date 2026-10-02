@@ -22,12 +22,19 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.5",
 ]
+web = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
 
 [project.scripts]
 code-agent = "code_agent.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"code_agent.web" = ["static/*"]
 
 [tool.ruff]
 line-length = 100

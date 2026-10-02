@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>审查卷宗 · code-agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Azeret+Mono:wght@400;500;600&family=Bodoni+Moda:opsz,wght@6..96,400;6..96,600;6..96,700&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<div class="grain" aria-hidden="true"></div>
+
+<header class="masthead">
+  <p class="kicker">CODE-AGENT · 代码审查智能体</p>
+  <h1 class="title">审查卷宗</h1>
+  <p class="standfirst">给一个路径，看它调工具、读代码、逐条落定。</p>
+
+  <dl class="meta">
+    <div class="meta__item"><dt>模型</dt><dd id="meta-model">—</dd></div>
+    <div class="meta__item"><dt>端点</dt><dd id="meta-endpoint">—</dd></div>
+    <div class="meta__item"><dt>凭证</dt><dd id="meta-key">检查中…</dd></div>
+  </dl>
+</header>
+
+<section class="commission" aria-label="审查委托">
+  <form id="form" class="form" autocomplete="off">
+    <label class="field field--path">
+      <span class="field__label">路径</span>
+      <input id="path" name="path" value="examples/bad_code.py" spellcheck="false">
+    </label>
+    <label class="field">
+      <span class="field__label">Glob</span>
+      <input id="glob" name="glob" value="**/*.py" spellcheck="false">
+    </label>
+    <label class="field field--num">
+      <span class="field__label">上限</span>
+      <input id="max-files" name="max_files" type="number" min="1" max="200" value="20">
+    </label>
+    <label class="field field--focus">
+      <span class="field__label">关注点</span>
+      <input id="focus" name="focus" placeholder="可留空，例如：并发与资源释放">
+    </label>
+    <button id="run" class="run" type="submit">
+      <span class="run__ink" aria-hidden="true"></span>
+      <span class="run__label">开始审查</span>
+    </button>
+  </form>
+  <p class="banner" id="banner" hidden role="status"></p>
+</section>
+
+<div class="spread">
+
+  <aside class="rail" aria-label="审查读数">
+    <section class="gauge">
+      <p class="rail__label">评分</p>
+      <p class="score"><span id="score">—</span><span class="score__den">/100</span></p>
+      <div class="score__track"><span id="score-fill" class="score__fill"></span></div>
+    </section>
+
+    <section class="stats">
+      <p class="rail__label">读数</p>
+      <dl class="stats__list">
+        <div class="stats__row"><dt>文件</dt><dd id="stat-files">0</dd></div>
+        <div class="stats__row"><dt>发现</dt><dd id="stat-findings">0</dd></div>
+        <div class="stats__row"><dt>LLM</dt><dd id="stat-llm">0</dd></div>
+        <div class="stats__row"><dt>工具</dt><dd id="stat-tools">0</dd></div>
+        <div class="stats__row"><dt>Token</dt><dd id="stat-tokens">0</dd></div>
+      </dl>
+    </section>
+
+    <section class="trace">
+      <p class="rail__label">过程 <span class="trace__state" id="trace-state" data-state="idle">待机</span></p>
+      <ol class="trace__list" id="trace" aria-live="polite"></ol>
+    </section>
+  </aside>
+
+  <main class="dossier" aria-label="审查结果">
+    <div class="idle" id="idle">
+      <p class="idle__mark">§</p>
+      <p class="idle__text">尚未开卷。<br>填好路径，按下「开始审查」——左侧会实时滚动它调用的每一个工具，这里会逐条列出发现。</p>
+    </div>
+
+    <section class="summary" id="summary" hidden>
+      <h2 class="summary__head">总述</h2>
+      <p class="summary__text" id="summary-text"></p>
+      <div class="summary__actions">
+        <button class="ghost" id="copy-md" type="button">复制 Markdown</button>
+        <button class="ghost" id="download-md" type="button">下载 .md</button>
+      </div>
+    </section>
+
+    <section class="findings" id="findings" hidden>
+      <h2 class="findings__head">
+        发现<span class="findings__count" id="findings-count"></span>
+      </h2>
+      <ol class="findings__list" id="findings-list"></ol>
+    </section>
+
+    <section class="notes" id="notes" hidden>
+      <h2 class="notes__head">附注</h2>
+      <ul class="notes__list" id="notes-list"></ul>
+    </section>
+  </main>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

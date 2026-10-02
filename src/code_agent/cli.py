@@ -194,3 +194,25 @@ def chat(
             err_console.print("[red]本轮没有得到回答。[/red]")
 
     raise typer.Exit(EXIT_OK)
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="监听地址；默认仅本机可访问。"),
+    port: int = typer.Option(8000, "--port", min=1, max=65535, help="监听端口。"),
+) -> None:
+    """启动本地 Web 界面（需先 pip install -e ".[web]"）。"""
+    err_console = Console(stderr=True)
+    try:
+        import uvicorn
+    except ImportError:
+        err_console.print('[red]缺少 Web 依赖。请先运行：[/red]pip install -e ".[web]"')
+        raise typer.Exit(EXIT_USAGE) from None
+
+    from code_agent.web.app import create_app
+
+    if not AgentConfig.from_env().api_key:
+        err_console.print("[yellow]警告：未检测到 OPENAI_API_KEY，页面会提示缺少凭证。[/yellow]")
+
+    Console().print(f"[dim]审查卷宗：http://{host}:{port}（Ctrl-C 停止）[/dim]")
+    uvicorn.run(create_app(), host=host, port=port)
